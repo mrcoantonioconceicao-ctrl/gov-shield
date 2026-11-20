@@ -16,6 +16,17 @@ import {
   SAMPLE_EDITAIS,
   SampleEdital,
 } from './utils/cryptoAndAnalysis';
+import {
+  invokeStep1TriageFastService,
+  invokeStep1TriageService,
+} from './services/triageService';
+import { invokeStep2ExtractorService } from './services/extractorService';
+import {
+  Step1FastTriageResponse,
+  Step1TriageResult,
+  TriageMode,
+} from './types/triage';
+import { Step2ExtractorResult } from './types/extractor';
 
 export default function App() {
   const defaultSample = SAMPLE_EDITAIS[0];
@@ -44,6 +55,19 @@ export default function App() {
   const [auditedOriginalText, setAuditedOriginalText] = useState<string>(
     defaultSample.conteudo
   );
+  const [companyProfile, setCompanyProfile] = useState<string>(
+    'CNAE 6201-5/01 (Desenvolvimento de software sob encomenda) e 6311-9/00 (Tratamento de dados, hospedagem em nuvem, prontuário eletrônico e soluções de biometria digital).'
+  );
+  const [triageMode, setTriageMode] = useState<TriageMode>('full');
+  const [triageResult, setTriageResult] = useState<Step1TriageResult | null>(null);
+  const [fastTriageResponse, setFastTriageResponse] =
+    useState<Step1FastTriageResponse | null>(null);
+  const [isTriaging, setIsTriaging] = useState<boolean>(false);
+  const [triageError, setTriageError] = useState<string | null>(null);
+  const [extractorResult, setExtractorResult] =
+    useState<Step2ExtractorResult | null>(null);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
+  const [extractorError, setExtractorError] = useState<string | null>(null);
 
   // Initialize first reference sample audit via BPMN + MCP orchestrator on mount
   useEffect(() => {
@@ -114,6 +138,11 @@ export default function App() {
     setPdfBase64(undefined);
     setDocumentText(sample.conteudo);
     setFileSizeBytes(new TextEncoder().encode(sample.conteudo).length);
+    setTriageResult(null);
+    setFastTriageResponse(null);
+    setTriageError(null);
+    setExtractorResult(null);
+    setExtractorError(null);
 
     await executeEnterprisePipeline({
       mode: 'REFERENCE_DEMO',
@@ -142,6 +171,11 @@ export default function App() {
       setDocumentText(result.text);
       setSha256(result.sha256);
       setFileSizeBytes(result.sizeBytes);
+      setTriageResult(null);
+      setFastTriageResponse(null);
+      setTriageError(null);
+      setExtractorResult(null);
+      setExtractorError(null);
 
       await executeEnterprisePipeline({
         mode: 'GEMINI_REAL',
@@ -168,6 +202,11 @@ export default function App() {
     setMimeType('text/plain');
     setPdfBase64(undefined);
     setDocumentText(nextText);
+    setTriageResult(null);
+    setFastTriageResponse(null);
+    setTriageError(null);
+    setExtractorResult(null);
+    setExtractorError(null);
     if (!fileName) {
       setFileName('Minuta_Avulsa_Edital.txt');
     }
@@ -197,6 +236,63 @@ export default function App() {
     });
   };
 
+  const handleRunTriage = async () => {
+    const isPdf = mimeType === 'application/pdf' && !!pdfBase64;
+    if (!isPdf && !documentText.trim()) return;
+
+    setTriageError(null);
+    setIsTriaging(true);
+    try {
+      const payload = {
+        fileName: fileName || 'Minuta_Avulsa_Edital.txt',
+        mimeType: isPdf ? ('application/pdf' as const) : ('text/plain' as const),
+        base64Data: isPdf ? pdfBase64 : undefined,
+        textContent: documentText,
+        companyProfile,
+      };
+      if (triageMode === 'fast') {
+        const fastRes = await invokeStep1TriageFastService(payload);
+        setFastTriageResponse(fastRes);
+      } else {
+        const result = await invokeStep1TriageService(payload);
+        setTriageResult(result);
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível executar a triagem do preâmbulo.';
+      setTriageError(message);
+    } finally {
+      setIsTriaging(false);
+    }
+  };
+
+  const handleRunExtraction = async () => {
+    const isPdf = mimeType === 'application/pdf' && !!pdfBase64;
+    if (!isPdf && !documentText.trim()) return;
+
+    setExtractorError(null);
+    setIsExtracting(true);
+    try {
+      const result = await invokeStep2ExtractorService({
+        fileName: fileName || 'Minuta_Avulsa_Edital.txt',
+        mimeType: isPdf ? 'application/pdf' : 'text/plain',
+        base64Data: isPdf ? pdfBase64 : undefined,
+        textContent: documentText,
+      });
+      setExtractorResult(result);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível executar a extração documental forense.';
+      setExtractorError(message);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const handleReset = () => {
     setAuditError(null);
     setSelectedSampleId(null);
@@ -208,6 +304,11 @@ export default function App() {
     setSha256('');
     setBundle(null);
     setAuditedOriginalText('');
+    setTriageResult(null);
+    setFastTriageResponse(null);
+    setTriageError(null);
+    setExtractorResult(null);
+    setExtractorError(null);
     setBpmnSteps(INITIAL_BPMN_STEPS);
     setActiveTab('achados');
   };
@@ -260,11 +361,26 @@ export default function App() {
           <AuditWorkspace
             bundle={bundle}
             originalText={auditedOriginalText}
+            activeFileName={fileName}
+            hasActiveDocument={isPdfLoaded || documentText.trim().length > 0}
+            companyProfile={companyProfile}
+            triageMode={triageMode}
+            triageResult={triageResult}
+            fastTriageResponse={fastTriageResponse}
+            isTriaging={isTriaging}
+            triageError={triageError}
+            extractorResult={extractorResult}
+            isExtracting={isExtracting}
+            extractorError={extractorError}
             activeTab={activeTab}
             isAuditing={isAuditing}
             bpmnSteps={bpmnSteps}
             auditError={auditError}
             onSelectTab={setActiveTab}
+            onCompanyProfileChange={setCompanyProfile}
+            onTriageModeChange={setTriageMode}
+            onRunTriage={handleRunTriage}
+            onRunExtraction={handleRunExtraction}
             onLoadDefaultSample={() => handleSelectSample(SAMPLE_EDITAIS[0])}
             onDismissError={() => setAuditError(null)}
             onRetryAudit={handleRunAudit}

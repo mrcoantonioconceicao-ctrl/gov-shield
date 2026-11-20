@@ -7,7 +7,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { AuditReport } from './src/types/audit.ts';
+import type { Step1TriageResult } from './src/types/triage.ts';
+import type { Step2ExtractorResult } from './src/types/extractor.ts';
 import { GEMINI_AUDIT_SYSTEM_INSTRUCTION } from './src/services/auditPromptConfig.ts';
+import {
+  STEP1_TRIAGE_SYSTEM_INSTRUCTION,
+  step1TriageResponseSchema,
+} from './src/services/triagePromptConfig.ts';
+import {
+  STEP2_EXTRACTOR_SYSTEM_INSTRUCTION,
+  step2ExtractorResponseSchema,
+} from './src/services/extractorPromptConfig.ts';
+import {
+  parseJsonSafely,
+  runStep1TriageFast,
+  runStep1TriageFastPdf,
+} from './src/services/triageFastEngine.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -163,6 +178,21 @@ interface AuditRequestBody {
   };
 }
 
+interface TriageRequestBody {
+  fileName?: string;
+  mimeType?: string;
+  base64Data?: string;
+  textContent?: string;
+  companyProfile?: string;
+}
+
+interface ExtractRequestBody {
+  fileName?: string;
+  mimeType?: string;
+  base64Data?: string;
+  textContent?: string;
+}
+
 function buildScopeInstructions(scope?: AuditRequestBody['scope']): string {
   const activeScopes: string[] = [];
   if (scope?.lei14133 !== false) {
@@ -316,10 +346,12 @@ Lembrete: NÃO invente apontamentos se não houver evidência textual explícita
         return;
       }
 
-      const parsed = JSON.parse(rawJson) as Omit<
-        AuditReport,
-        'sha256_documento' | 'nome_arquivo' | 'timestamp_auditoria'
-      >;
+      const parsed = parseJsonSafely<
+        Omit<
+          AuditReport,
+          'sha256_documento' | 'nome_arquivo' | 'timestamp_auditoria'
+        >
+      >(rawJson);
 
       const elapsedSeconds = Number(
         Math.max(0.1, (performance.now() - startMs) / 1000).toFixed(2)
@@ -380,6 +412,266 @@ Lembrete: NÃO invente apontamentos se não houver evidência textual explícita
       };
 
       res.json(finalReport);
+    } catch (err) {
+      const { status, message } = extractReadableError(err);
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/triage', async (req: Request, res: Response) => {
+    const startMs = performance.now();
+    const body = (req.body || {}) as TriageRequestBody;
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      res.status(500).json({
+        error:
+          'Chave GEMINI_API_KEY não configurada no servidor. Configure-a em Settings > Secrets.',
+      });
+      return;
+    }
+
+    const fileName = (body.fileName || 'Documento_Sem_Nome.txt').trim();
+    const mimeType = body.mimeType || 'text/plain';
+    const companyProfile = (body.companyProfile || '').trim();
+
+    if (!companyProfile) {
+      res.status(400).json({
+        error:
+          'Informe o perfil da empresa (CNAEs ou atividades de atuação) para avaliar o match de escopo.',
+      });
+      return;
+    }
+
+    if (mimeType === 'application/pdf' && !body.base64Data) {
+      res.status(400).json({
+        error: 'Conteúdo Base64 do arquivo PDF não foi recebido pelo servidor.',
+      });
+      return;
+    }
+
+    if (mimeType !== 'application/pdf' && !body.textContent?.trim()) {
+      res.status(400).json({
+        error: 'Nenhum conteúdo textual foi enviado para triagem.',
+      });
+      return;
+    }
+
+    const triagePrompt = `Analise o preâmbulo e o objeto do documento "${fileName}" e faça o cruzamento com o seguinte perfil/escopo de atuação da empresa:
+
+PERFIL DA EMPRESA (CNAEs / ATIVIDADES):
+${companyProfile}`;
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const parts =
+        mimeType === 'application/pdf' && body.base64Data
+          ? [
+              {
+                inlineData: {
+                  data: body.base64Data,
+                  mimeType: 'application/pdf',
+                },
+              },
+              { text: triagePrompt },
+            ]
+          : [
+              {
+                text: `${triagePrompt}\n\nTEXTO DO EDITAL:\n${body.textContent}`,
+              },
+            ];
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: { parts },
+        config: {
+          systemInstruction: STEP1_TRIAGE_SYSTEM_INSTRUCTION,
+          responseMimeType: 'application/json',
+          responseSchema: step1TriageResponseSchema,
+        },
+      });
+
+      const rawJson = (response.text || '').trim();
+      if (!rawJson) {
+        res.status(502).json({
+          error: 'O modelo retornou uma resposta vazia na triagem. Tente novamente.',
+        });
+        return;
+      }
+
+      const parsed = parseJsonSafely<Step1TriageResult>(rawJson);
+      const elapsedSeconds = Number(
+        Math.max(0.1, (performance.now() - startMs) / 1000).toFixed(2)
+      );
+
+      res.json({
+        ...parsed,
+        tempo_execucao_segundos: elapsedSeconds,
+      });
+    } catch (err) {
+      const { status, message } = extractReadableError(err);
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/triage/fast', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as TriageRequestBody;
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      res.status(500).json({
+        error:
+          'Chave GEMINI_API_KEY não configurada no servidor. Configure-a em Settings > Secrets.',
+      });
+      return;
+    }
+
+    const mimeType = body.mimeType || 'text/plain';
+    const companyProfile = (body.companyProfile || '').trim();
+
+    if (!companyProfile) {
+      res.status(400).json({
+        error:
+          'Informe o perfil da empresa (CNAEs ou atividades de atuação) para avaliar o match de escopo.',
+      });
+      return;
+    }
+
+    if (mimeType === 'application/pdf' && !body.base64Data) {
+      res.status(400).json({
+        error: 'Conteúdo Base64 do arquivo PDF não foi recebido pelo servidor.',
+      });
+      return;
+    }
+
+    if (mimeType !== 'application/pdf' && !body.textContent?.trim()) {
+      res.status(400).json({
+        error: 'Nenhum conteúdo textual foi enviado para triagem rápida.',
+      });
+      return;
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const result =
+        mimeType === 'application/pdf' && body.base64Data
+          ? await runStep1TriageFastPdf(ai, body.base64Data, companyProfile)
+          : await runStep1TriageFast(
+              ai,
+              body.textContent || '',
+              companyProfile
+            );
+
+      res.json(result);
+    } catch (err) {
+      const { status, message } = extractReadableError(err);
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/extract', async (req: Request, res: Response) => {
+    const startMs = performance.now();
+    const body = (req.body || {}) as ExtractRequestBody;
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      res.status(500).json({
+        error:
+          'Chave GEMINI_API_KEY não configurada no servidor. Configure-a em Settings > Secrets.',
+      });
+      return;
+    }
+
+    const fileName = (body.fileName || 'Documento_Sem_Nome.txt').trim();
+    const mimeType = body.mimeType || 'text/plain';
+
+    if (mimeType === 'application/pdf' && !body.base64Data) {
+      res.status(400).json({
+        error: 'Conteúdo Base64 do arquivo PDF não foi recebido pelo servidor.',
+      });
+      return;
+    }
+
+    if (mimeType !== 'application/pdf' && !body.textContent?.trim()) {
+      res.status(400).json({
+        error: 'Nenhum conteúdo textual foi enviado para extração forense.',
+      });
+      return;
+    }
+
+    const extractPrompt = `Realize a extração documental forense completa do documento "${fileName}", localizando e transcrevendo literalmente (ipsissima verba) as exigências de qualificação técnica, qualificação econômico-financeira e todas as barreiras operacionais e restrições presentes no texto.`;
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const parts =
+        mimeType === 'application/pdf' && body.base64Data
+          ? [
+              {
+                inlineData: {
+                  data: body.base64Data,
+                  mimeType: 'application/pdf',
+                },
+              },
+              { text: extractPrompt },
+            ]
+          : [
+              {
+                text: `${extractPrompt}\n\nTEXTO INTEGRAL DO EDITAL:\n${body.textContent}`,
+              },
+            ];
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: { parts },
+        config: {
+          systemInstruction: STEP2_EXTRACTOR_SYSTEM_INSTRUCTION,
+          responseMimeType: 'application/json',
+          responseSchema: step2ExtractorResponseSchema,
+        },
+      });
+
+      const rawJson = (response.text || '').trim();
+      if (!rawJson) {
+        res.status(502).json({
+          error:
+            'O modelo retornou uma resposta vazia na extração forense. Tente novamente.',
+        });
+        return;
+      }
+
+      const parsed = parseJsonSafely<Step2ExtractorResult>(rawJson);
+      const elapsedSeconds = Number(
+        Math.max(0.1, (performance.now() - startMs) / 1000).toFixed(2)
+      );
+
+      res.json({
+        ...parsed,
+        tempo_execucao_segundos: elapsedSeconds,
+      });
     } catch (err) {
       const { status, message } = extractReadableError(err);
       res.status(status).json({ error: message });

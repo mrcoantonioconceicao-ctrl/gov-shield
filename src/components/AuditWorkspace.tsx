@@ -16,6 +16,12 @@ import {
   EnterpriseAuditBundle,
 } from '../domain/orchestrator/auditBpmnOrchestrator';
 import { AuditFinding, AuditStatus } from '../types/audit';
+import {
+  Step1FastTriageResponse,
+  Step1TriageResult,
+  TriageMode,
+} from '../types/triage';
+import { Step2ExtractorResult } from '../types/extractor';
 import { findNodeIdForFinding } from '../utils/graphFindingMatcher';
 import { BpmnPipelineBar } from './BpmnPipelineBar';
 import { DependencyGraphView } from './DependencyGraphView';
@@ -23,16 +29,33 @@ import { EnterpriseArchitectureView } from './EnterpriseArchitectureView';
 import { FindingsList } from './FindingsList';
 import { NormativeReferenceView } from './NormativeReferenceView';
 import { RedlineDiffView } from './RedlineDiffView';
+import { Step1TriageView } from './Step1TriageView';
+import { Step2ExtractorView } from './Step2ExtractorView';
 import { WorkspaceTab } from './TopBar';
 
 interface AuditWorkspaceProps {
   bundle: EnterpriseAuditBundle | null;
   originalText: string;
+  activeFileName: string;
+  hasActiveDocument: boolean;
+  companyProfile: string;
+  triageMode: TriageMode;
+  triageResult: Step1TriageResult | null;
+  fastTriageResponse: Step1FastTriageResponse | null;
+  isTriaging: boolean;
+  triageError: string | null;
+  extractorResult: Step2ExtractorResult | null;
+  isExtracting: boolean;
+  extractorError: string | null;
   activeTab: WorkspaceTab;
   isAuditing: boolean;
   bpmnSteps: BpmnStepState[];
   auditError: string | null;
   onSelectTab: (tab: WorkspaceTab) => void;
+  onCompanyProfileChange: (value: string) => void;
+  onTriageModeChange: (mode: TriageMode) => void;
+  onRunTriage: () => void;
+  onRunExtraction: () => void;
   onLoadDefaultSample: () => void;
   onDismissError: () => void;
   onRetryAudit: () => void;
@@ -70,11 +93,26 @@ const STATUS_DISPLAY: Record<
 export function AuditWorkspace({
   bundle,
   originalText,
+  activeFileName,
+  hasActiveDocument,
+  companyProfile,
+  triageMode,
+  triageResult,
+  fastTriageResponse,
+  isTriaging,
+  triageError,
+  extractorResult,
+  isExtracting,
+  extractorError,
   activeTab,
   isAuditing,
   bpmnSteps,
   auditError,
   onSelectTab,
+  onCompanyProfileChange,
+  onTriageModeChange,
+  onRunTriage,
+  onRunExtraction,
   onLoadDefaultSample,
   onDismissError,
   onRetryAudit,
@@ -179,6 +217,49 @@ export function AuditWorkspace({
   ) : null;
 
   if (!bundle || !report) {
+    if (activeTab === 'triagem') {
+      return (
+        <section
+          aria-label="Triagem de edital (Etapa 1)"
+          className="flex-1 min-w-0 rounded-lg border border-[#1F2937] bg-[#111827] flex flex-col overflow-hidden min-h-[540px]"
+        >
+          {errorBanner}
+          <Step1TriageView
+            fileName={activeFileName}
+            hasDocument={hasActiveDocument}
+            companyProfile={companyProfile}
+            triageMode={triageMode}
+            triageResult={triageResult}
+            fastTriageResponse={fastTriageResponse}
+            isTriaging={isTriaging}
+            triageError={triageError}
+            onCompanyProfileChange={onCompanyProfileChange}
+            onTriageModeChange={onTriageModeChange}
+            onRunTriage={onRunTriage}
+          />
+        </section>
+      );
+    }
+
+    if (activeTab === 'extracao') {
+      return (
+        <section
+          aria-label="Extrator forense (Etapa 2)"
+          className="flex-1 min-w-0 rounded-lg border border-[#1F2937] bg-[#111827] flex flex-col overflow-hidden min-h-[540px]"
+        >
+          {errorBanner}
+          <Step2ExtractorView
+            fileName={activeFileName}
+            hasDocument={hasActiveDocument}
+            extractorResult={extractorResult}
+            isExtracting={isExtracting}
+            extractorError={extractorError}
+            onRunExtraction={onRunExtraction}
+          />
+        </section>
+      );
+    }
+
     return (
       <section
         aria-label="Painel de resultados da auditoria"
@@ -367,6 +448,8 @@ export function AuditWorkspace({
         >
           {(
             [
+              { id: 'triagem', label: 'Triagem (Etapa 1)' },
+              { id: 'extracao', label: 'Extração (Etapa 2)' },
               { id: 'achados', label: `Achados (${report.achados.length})` },
               {
                 id: 'minuta',
@@ -412,6 +495,33 @@ export function AuditWorkspace({
 
       {/* Tab Content Viewport */}
       <div className="flex-1">
+        {activeTab === 'triagem' && (
+          <Step1TriageView
+            fileName={activeFileName}
+            hasDocument={hasActiveDocument}
+            companyProfile={companyProfile}
+            triageMode={triageMode}
+            triageResult={triageResult}
+            fastTriageResponse={fastTriageResponse}
+            isTriaging={isTriaging}
+            triageError={triageError}
+            onCompanyProfileChange={onCompanyProfileChange}
+            onTriageModeChange={onTriageModeChange}
+            onRunTriage={onRunTriage}
+          />
+        )}
+
+        {activeTab === 'extracao' && (
+          <Step2ExtractorView
+            fileName={activeFileName}
+            hasDocument={hasActiveDocument}
+            extractorResult={extractorResult}
+            isExtracting={isExtracting}
+            extractorError={extractorError}
+            onRunExtraction={onRunExtraction}
+          />
+        )}
+
         {activeTab === 'achados' && (
           <FindingsList
             key={`${report.sha256_documento}-${report.timestamp_auditoria}`}

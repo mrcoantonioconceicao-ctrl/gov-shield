@@ -1,6 +1,8 @@
 import { Download, Shield } from 'lucide-react';
 
 export type WorkspaceTab =
+  | 'triagem'
+  | 'extracao'
   | 'achados'
   | 'minuta'
   | 'grafo'
@@ -17,6 +19,7 @@ interface TopBarProps {
 }
 
 const NAV_ITEMS: { id: WorkspaceTab; label: string }[] = [
+  { id: 'triagem', label: 'Triagem' },
   { id: 'achados', label: 'Achados' },
   { id: 'minuta', label: 'Minuta Retificada' },
   { id: 'grafo', label: 'Grafo' },
