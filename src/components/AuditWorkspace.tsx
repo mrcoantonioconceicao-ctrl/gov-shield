@@ -22,10 +22,12 @@ import { DependencyGraphView } from './DependencyGraphView';
 import { EnterpriseArchitectureView } from './EnterpriseArchitectureView';
 import { FindingsList } from './FindingsList';
 import { NormativeReferenceView } from './NormativeReferenceView';
+import { RedlineDiffView } from './RedlineDiffView';
 import { WorkspaceTab } from './TopBar';
 
 interface AuditWorkspaceProps {
   bundle: EnterpriseAuditBundle | null;
+  originalText: string;
   activeTab: WorkspaceTab;
   isAuditing: boolean;
   bpmnSteps: BpmnStepState[];
@@ -67,6 +69,7 @@ const STATUS_DISPLAY: Record<
 
 export function AuditWorkspace({
   bundle,
+  originalText,
   activeTab,
   isAuditing,
   bpmnSteps,
@@ -366,6 +369,10 @@ export function AuditWorkspace({
             [
               { id: 'achados', label: `Achados (${report.achados.length})` },
               {
+                id: 'minuta',
+                label: 'Minuta Retificada (Diff)',
+              },
+              {
                 id: 'grafo',
                 label: `Grafo (${report.grafo_dependencias.nos.length} nós)`,
               },
@@ -411,6 +418,14 @@ export function AuditWorkspace({
             achados={report.achados}
             findingAstPaths={bundle.findingAstPaths}
             onInspectInGraph={handleInspectInGraph}
+          />
+        )}
+
+        {activeTab === 'minuta' && (
+          <RedlineDiffView
+            key={`${report.sha256_documento}-${report.timestamp_auditoria}`}
+            report={report}
+            originalText={originalText}
           />
         )}
 

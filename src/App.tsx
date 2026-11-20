@@ -41,6 +41,9 @@ export default function App() {
   const [bpmnSteps, setBpmnSteps] = useState<BpmnStepState[]>(INITIAL_BPMN_STEPS);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [bundle, setBundle] = useState<EnterpriseAuditBundle | null>(null);
+  const [auditedOriginalText, setAuditedOriginalText] = useState<string>(
+    defaultSample.conteudo
+  );
 
   // Initialize first reference sample audit via BPMN + MCP orchestrator on mount
   useEffect(() => {
@@ -56,6 +59,7 @@ export default function App() {
       if (cancelled) return;
       setSha256(result.report.sha256_documento);
       setBundle(result);
+      setAuditedOriginalText(defaultSample.conteudo);
       setBpmnSteps(result.bpmnSteps);
     })();
     return () => {
@@ -90,6 +94,7 @@ export default function App() {
 
       setSha256(result.report.sha256_documento);
       setBundle(result);
+      setAuditedOriginalText(params.targetText);
       setActiveTab('achados');
     } catch (err) {
       const message =
@@ -202,6 +207,7 @@ export default function App() {
     setFileSizeBytes(0);
     setSha256('');
     setBundle(null);
+    setAuditedOriginalText('');
     setBpmnSteps(INITIAL_BPMN_STEPS);
     setActiveTab('achados');
   };
@@ -253,6 +259,7 @@ export default function App() {
 
           <AuditWorkspace
             bundle={bundle}
+            originalText={auditedOriginalText}
             activeTab={activeTab}
             isAuditing={isAuditing}
             bpmnSteps={bpmnSteps}

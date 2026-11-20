@@ -1,6 +1,12 @@
 import { Download, Shield } from 'lucide-react';
 
-export type WorkspaceTab = 'achados' | 'grafo' | 'arquitetura' | 'json' | 'normas';
+export type WorkspaceTab =
+  | 'achados'
+  | 'minuta'
+  | 'grafo'
+  | 'arquitetura'
+  | 'json'
+  | 'normas';
 
 interface TopBarProps {
   activeTab: WorkspaceTab;
@@ -12,10 +18,10 @@ interface TopBarProps {
 
 const NAV_ITEMS: { id: WorkspaceTab; label: string }[] = [
   { id: 'achados', label: 'Achados' },
+  { id: 'minuta', label: 'Minuta Retificada' },
   { id: 'grafo', label: 'Grafo' },
   { id: 'arquitetura', label: 'Arquitetura MCP' },
   { id: 'json', label: 'Contrato JSON' },
-  { id: 'normas', label: 'Base Normativa' },
 ];
 
 export function TopBar({
