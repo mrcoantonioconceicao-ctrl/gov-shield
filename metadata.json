@@ -1,0 +1,6 @@
+{
+  "name": "GovShield Audit Studio",
+  "description": "Plataforma de auditoria pericial, conformidade jurídica e análise de risco para editais e contratos públicos brasileiros (Lei nº 14.133/2021, TCE/SC e LGPD).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
