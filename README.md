@@ -83,6 +83,9 @@ flowchart LR
 ## 5. Estrutura do Repositório
 
 ```text
+├── .github/
+│   ├── dependabot.yml                           # Atualizações automáticas npm & GitHub Actions (Dependabot)
+│   └── workflows/ci.yml                         # CI automático (npm run lint + npm run build) em PRs
 ├── server.ts                                    # Servidor Express + endpoint POST /api/audit (@google/genai)
 ├── index.html                                   # Entry point HTML e metadados
 ├── package.json                                 # Dependências e scripts npm
@@ -209,6 +212,7 @@ Cada apontamento gerado pelo motor pericial e correlacionado pelo GraphRAG é cl
 - **Integridade Verificável:** nenhum hash SHA-256 é gerado por LLM; tanto o hash de entrada quanto o hash pós-remediação são calculados deterministicamente no navegador via Web Crypto API.
 - **Regra *Ipsissima Verba*:** os achados reportam citações literais do documento auditado e sugestões sem placeholders entre colchetes.
 - **Aprovação Humana Obrigatória:** todas as correções aplicadas na aba **Minuta Retificada** são operadas sob o status explícito **`Aguardando Assinatura da Autoridade Competente (Human-in-the-Loop)`**, preservando a responsabilidade decisória do procurador ou pregoeiro.
+- **Higiene de Dependências (Dependabot + CI):** `.github/dependabot.yml` monitora diariamente atualizações de segurança e versão do ecossistema `npm` e `github-actions`, validadas automaticamente pelo workflow `.github/workflows/ci.yml` (`npm run lint` e `npm run build`).
 
 ---
 
